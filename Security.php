@@ -4,7 +4,7 @@ class Security{
 
 	private $key = "#$5asdf324rfassdft345SDFwerwerER";
 
-	public $no_debug_ips = ['188.243.218.18'];	//ip c с которых не запускается режим отладки
+	public $no_debug_ips = ['127.0.0.1', '188.243.218.18'];		//ip c с которых не запускается режим отладки
 
 	//Разрешенные коды телефонов
 	public $ok_codes = [
@@ -32,18 +32,19 @@ class Security{
 	public $work_blocks = [];
 
 
-	public $phone = '';
-	public $message = '';
-	public $email = '';
+	public $phone = null;
+	public $message = null;
+	public $email = null;
+	public $name = null;
 
 	function __construct(){
 		if(isset($_GET['SDU'])){
 			ob_clean();
-			echo urlencode($this->set(true));
+			echo urlencode($this->set_SDU(true));
 			exit();
 		}else if(isset($_GET['SDU_HtmlScript']) or isset($_POST['SDU_HtmlScript'])){
 			ob_clean();
-			echo urlencode($this->HtmlScript(false));
+			echo urlencode($this->html_script(false));
 			exit();
 		}
 	}
@@ -123,8 +124,8 @@ class Security{
 		return $return;
 	}
 
-	//Задать данные пользователя и времени (или вывести)
-	public function set($get = false){
+	//Задать Security Data User (или вывести)
+	public function set_SDU($get = false){
 			$data = $this->encrypt(json_encode($this->data()));
 			if($get){
 				return $data;
@@ -134,13 +135,13 @@ class Security{
 		return true;
 	}
 
-	//Получить данные пользователя и времени
-	public function get(){
-		return json_decode($this->decrypt($_COOKIE['SDU']), true);
+	//Получить Security Data User
+	public function get_SDU(){
+		return json_decode($this->decrypt(urldecode(trim($_COOKIE['SDU']) ? : "")),true);
 	}
 
 	//Задать данные пользователя и времени (script)
-	private function HtmlScript($tag = true){?>
+	private function html_script($tag = true){?>
 		<?if($tag):?>
 			<script type='text/javascript'>
 		<?endif;?>
@@ -242,59 +243,129 @@ class Security{
 	<?}
 
 	//Валидация телефонов
-	public function valid_phone($num,$info = false){
+	public function valid_phone($phone = null, $info = false){
 		$bool = true;
 		$result = ["mess" => "", "error" => ""];
 
-		if($bool and strlen($num) != 11){
-			$bool = false;
-			$result["mess"] = "Не корректрая длина номера! [len($num)=". strlen($num)."]";
-			$result["error"] = "[Не корректрая длина номера!]";
+		if($phone != null){
+			$this->phone = $phone;
 		}
 
+		if($this->phone != null){
+			$this->phone = preg_replace("/[^0-9]/", '', $this->phone);
 
-		$code = mb_substr($num,1,3);
-		if($bool and !in_array($code, $this->ok_codes)){
-			$bool = false;
-			$result["mess"] = "Неизвестный код (города/оператора)! [({$num}) => {$code}]";
-			$result["error"] = "[Неизвестный код (города/оператора)!]";
+			if($bool and strlen($this->phone) != 11){
+				$bool = false;
+				$result["mess"] = "Не корректрая длина номера! [len($this->phone) = " . strlen($this->phone) . "]";
+				$result["error"] = "[Не корректрая длина номера!]";
+			}
+
+			$code = mb_substr($this->phone,1,3);
+			if($bool and !in_array($code, $this->ok_codes)){
+				$bool = false;
+				$result["mess"] = "Неизвестный код (города/оператора)! [({$this->phone}) => {$code}]";
+				$result["error"] = "[Неизвестный код (города/оператора)!]";
+			}
+
+			$numEnd = mb_substr($this->phone,4);
+			$numEndArrClear = array_unique(str_split($numEnd));
+			if($bool and count($numEndArrClear) <= 1){
+				$bool = false;
+				$result["mess"] = "Слишком однообразный номер! [({$numEnd}) => {" . implode(',', $numEndArrClear) . "}]";
+				$result["error"] = "[Слишком однообразный номер!]";
+			}
 		}
 
-		$numEnd = mb_substr($num,4);
-		$numEndArrClear = array_unique(str_split($numEnd));
-		if($bool and count($numEndArrClear)<=1){
-			$bool = false;
-			$result["mess"] = "Слишком однообразный номер! [({$numEnd}) => {".implode(',',$numEndArrClear)."} => ".count($numEndArrClear)."<=1]";
-			$result["error"] = "[Слишком однообразный номер!]";
-		}
 		return $info ? $result : $bool;
 	}
 
-	public function valid_message($text, $info = false){
+	//Валидация сообщения (комментария)
+	public function valid_message($text = null, $info = false){
 		$bool = true;
 		$result = ["mess" => "", "error" => ""];
-		if(
-			preg_match('/(^|[\n ])([\w]*?)((www|ftp)\.[^ \,\"\t\n\r<]*)/iu', $text)
-			or
-			preg_match('/(^|[\n ])([\w]*?)((ht|f)tp(s)?:\/\/[\w]+[^ \,\"\n\r\t<]*)/iu', $text)
-			or
-			preg_match('#\.[\w]+\/#iu', $text)
-			or
-			preg_match("/<[Aa][\s]{1}[^>]*[Hh][Rr][Ee][Ff][^=]*=[ '\"\s]*([^ \"'>\s#]+)[^>]*>/iu", $text)
-		){
-			$bool = false;
-			$result["mess"] = "В тексте была найдена ссылка!";
-			$result["error"] = "[В тексте была найдена ссылка!]";
+
+		if($text != null){
+			$this->message = $text;
 		}
 
-		if(preg_match("#(".implode(')|(',$this->work_blocks).")#iu", $text, $banMatches)){
+		if($this->message != null){
+			if(
+				preg_match('/(^|[\n ])([\w]*?)((www|ftp)\.[^ \,\"\t\n\r<]*)/iu', $this->message)
+				or
+				preg_match('/(^|[\n ])([\w]*?)((ht|f)tp(s)?:\/\/[\w]+[^ \,\"\n\r\t<]*)/iu', $this->message)
+				or
+				preg_match('#\.[\w]+\/#iu', $this->message)
+				or
+				preg_match("/<[Aa][\s]{1}[^>]*[Hh][Rr][Ee][Ff][^=]*=[ '\"\s]*([^ \"'>\s#]+)[^>]*>/iu", $this->message)
+			){
+				$bool = false;
+				$result["mess"] = "В тексте была найдена ссылка!";
+				$result["error"] = "[В тексте была найдена ссылка!]";
+			}
+
+			if(boolval($this->work_blocks) and preg_match("#(". implode(')|(', $this->work_blocks) . ")#iu", $this->message, $banMatches)){
+				$bool = false;
+				ob_start();
+				print_r($banMatches);
+				$banMatches = ob_get_clean();
+				$result["mess"] = "В тексте были найдены запрещенные слова!";
+				$result["mess"] .= "\n<br/><pre>{$banMatches}</pre>";
+				$result["error"] = "[В тексте были найдены запрещенные слова!]";
+			}
+		}
+
+		return $info ? $result : $bool;
+	}
+
+	//Валидация имени
+	public function valid_name($name = null, $info = false){
+		$bool = true;
+		$result = ["mess" => "", "error" => ""];
+
+		if($name != null){
+			$this->name = $name;
+		}
+
+		if($this->name != null){
+			if(strlen($digitName = preg_replace("#[^\d]+#iu","", $this->name)) > 0){
+				$bool = false;
+				$result["mess"] = "В имени найдены цыфры [" . $this->name . " => {$digitName}]";
+				$result["error"] = "[В имени найдены цыфры]";
+			}
+
+			if($bool and preg_match("#тест|test#iu", trim($this->name))){
+				$bool = false;
+				$result["mess"] = "В имени найден текст [тест|test => {" . $this->name . "}]";
+				$result["error"] = "[В имени найден текст [тест|test]]";
+			}
+		}
+
+		return $info ? $result : $bool;
+	}
+
+	//Валидация Security Data User
+	public function valid_SDU($info = false){
+		$bool = true;
+		$result = ["mess" => "", "error" => ""];
+		$data = $this->get_SDU();
+
+		if(!is_array($data)){
 			$bool = false;
-			ob_start();
-			print_r($banMatches);
-			$banMatches = ob_get_clean();
-			$result["mess"] = "В тексте были найдены запрещенные слова!";
-			$result["mess"] .= "\n<br/><pre>{$banMatches}</pre>";
-			$result["error"] = "[В тексте были найдены запрещенные слова!]";
+			$result["mess"] = 'Отсутствуют куки!';
+			$result["error"] = "[Отсутствуют куки]";
+		}
+
+		if($bool and (!boolval($data['ip']) or $data['ip'] != $this->ip())){
+			$bool = false;
+			$result["mess"] = "Некорректный IP! ['{$_COOKIE['SDU']}']";
+			$result["error"] = "[Некорректный IP]";
+		}
+
+		$time = time() - intval($data['time']);
+		if($bool and $time <= 5){
+			$bool = false;
+			$result["mess"] = "Недопуустимая скорость! [$time]";
+			$result["error"] = "[Недопуустимая скорость]";
 		}
 
 		return $info ? $result : $bool;
